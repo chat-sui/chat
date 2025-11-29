@@ -12,6 +12,7 @@ import {
 import { useState } from "react";
 import TripleInputAction from "@/components/create_chat/create_chat_room_comp"
 import { createProfile } from "@/utils/tx/create_profile";
+import { SecretGeneratorButton } from "@/components/secret-generator-button";
 export default function Page() {
   const suiClient = useSuiClient();
   const currentAccount = useCurrentAccount();
@@ -60,6 +61,7 @@ export default function Page() {
       <div className="flex flex-col items-center justify-center gap-4">
         <h1 className="text-2xl font-bold">Hello World</h1>
         <Button size="sm">Button</Button>
+        <SecretGeneratorButton />
         <ConnectButton />
         <TripleInputAction
           onClick={handleCreateProfile}
