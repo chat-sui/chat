@@ -12,7 +12,10 @@ import {
 import { useState } from "react";
 import TripleInputAction from "@/components/create_chat/create_chat_room_comp"
 import { createProfile } from "@/utils/tx/create_profile";
+import { useRouter } from "next/navigation"
+import { getProfileCap } from "@/utils/queryer";
 export default function Page() {
+  const router = useRouter()
   const suiClient = useSuiClient();
   const currentAccount = useCurrentAccount();
 
@@ -33,6 +36,10 @@ export default function Page() {
       });
     },
   });
+  getProfileCap({
+    suiClient: suiClient,
+    address: currentAccount?.address || "",
+  })
   const handleCreateProfile = async (v1: string, v2: string, v3: string) => {
     try {
       const tx = createProfile(v1, v2, v3);
@@ -44,6 +51,7 @@ export default function Page() {
         {
           onSuccess: (result) => {
             console.log("Transaction executed successfully:", result);
+            router.push(`/chatlist`)
           },
           onError: (error) => {
             console.error("Transaction execution failed:", error);
@@ -55,6 +63,7 @@ export default function Page() {
       alert("Mint failed");
     }
   }
+   
   return (
     <div className="flex items-center justify-center min-h-svh">
       <div className="flex flex-col items-center justify-center gap-4">
@@ -63,7 +72,7 @@ export default function Page() {
         <ConnectButton />
         <TripleInputAction
           onClick={handleCreateProfile}
-          buttonText="Create Chat Room"
+          buttonText="Create Profile"
           placeholders={["Room Name", "Description", "Topic"]}
         />
       </div>
