@@ -12,6 +12,7 @@ public struct Profile has key, store {
     username: String,
     bio: String,
     avatar_url: String,
+    friends: vector<ID>,
 }
 
 public struct ProfileCap has key {
@@ -36,6 +37,7 @@ public fun create_profile(
         username: username,
         bio: bio,
         avatar_url: avatar_url,
+        friends: vector::empty<ID>(),
     };
 
     let profile_cap = ProfileCap {
@@ -44,6 +46,15 @@ public fun create_profile(
     };
     transfer::share_object(profile);
     transfer::transfer(profile_cap, ctx.sender());
+}
+
+public fun add_friend(
+    profile_cap: &ProfileCap,
+    profile: &mut Profile,
+    friend_profile: &Profile,
+    ctx: &mut TxContext,
+) {
+    vector::push_back(&mut profile.friends, object::id(friend_profile));
 }
 
 public fun create_chat_room(

@@ -1,1 +1,1 @@
-export const packageID = '0x3970e32cbfc7e1b72130201ecf001ca2680d3fdf68b95aa87057fd6824bdd811'
+export const packageID = '0x93995b96d4d31d583b14d1b0c67cf5f1724017bb34926b1e1ce015de1e43b31a'
