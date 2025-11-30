@@ -144,10 +144,12 @@ public fun add_chatroom_profile(
 }
 
 entry fun profile_seal_approve(
+    id: vector<u8>,
     profile_cap: &ProfileCap,
     chatroom: &Chatroom,
     ctx: &mut TxContext,
 ) {
+    assert!(id == object::id_bytes(chatroom), EInvalidProfileCap);
     internal_approve_seal(profile_cap, chatroom, ctx);
 }
 

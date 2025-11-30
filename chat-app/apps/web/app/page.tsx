@@ -111,7 +111,6 @@ export default function Page() {
       <div className="flex flex-col items-center justify-center gap-4">
         <h1 className="text-2xl font-bold">Drift</h1>
         <ConnectButton />
-        <WalrusMessageViewer blobId="your-blob-id-here" />
         <TripleInputAction
           onClick={handleCreateProfile}
           buttonText="Create Profile"

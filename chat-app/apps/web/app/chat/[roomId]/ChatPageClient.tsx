@@ -17,20 +17,25 @@ import {
     useCurrentAccount,
     useSuiClient,
     useSignAndExecuteTransaction,
+    useSignPersonalMessage,
 } from "@mysten/dapp-kit";
 import { getProfileCap } from "@/utils/queryer";
-import { Paperclip, Image, Gift, Wallet, Smile, X, Plus } from "lucide-react";
+import { Paperclip, Image, Gift, Wallet, Smile, X, Plus, Mic, Trash2 } from "lucide-react";
 import {
     createSealEncryptedSecretAndStore,
     getStoredSecret,
+    storeSecret,
 } from "@/utils/sealSecret";
 import { sealClient } from "@/utils/sealClient";
+import { SessionKey, NoAccessError, EncryptedObject } from '@mysten/seal';
 import { packageID } from "@/utils/package";
 import { update_encryption_key } from "@/utils/tx/update_encryption_key";
 import { uploadMessageBlob, MessageBlob } from "@/utils/upload_relay";
 import { encryptData, decryptData } from "@/utils/encryption";
 import { WalrusMessageUploader } from "@/components/walrus/uploader";
 import { Transaction } from "@mysten/sui/transactions";
+import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
+import { fromHex } from "@mysten/sui/utils";
 
 
 type Author = "me" | "other";
@@ -137,13 +142,28 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
     const suiClient = useSuiClient();
     const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
     const [messages, setMessages] = useState<Message[]>([]);
-
+    const { mutate: signPersonalMessage } = useSignPersonalMessage();
     const [input, setInput] = useState("");
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const [showAttachments, setShowAttachments] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [uploadType, setUploadType] = useState<MessageType>('text');
 
+    const [isRecording, setIsRecording] = useState(false);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+
+    const { mutate: signAndExecute } = useSignAndExecuteTransaction({
+        execute: async ({ bytes, signature }) =>
+            await suiClient.executeTransactionBlock({
+                transactionBlock: bytes,
+                signature,
+                options: {
+                    showRawEffects: true,
+                    showEffects: true,
+                },
+            }),
+    });
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -227,6 +247,75 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
                 const fields = chatroomObj.data.content.fields as any;
 
                 const encryptionKey = fields.encryption_key;
+                const localSecret = getStoredSecret(roomId);
+
+                // Case 1: Key exists on chain, but not locally. Decrypt it.
+                if (!localSecret && encryptionKey && encryptionKey.length > 0) {
+                    console.log("Found encrypted key on chain, attempting to decrypt...");
+
+                    const profileCapRes = await getProfileCap({
+                        suiClient,
+                        address: currentAccount.address,
+                    });
+
+                    if (!profileCapRes || !profileCapRes.data || profileCapRes.data.length === 0) {
+                        console.error("ProfileCap not found");
+                        return;
+                    }
+                    const profileCapId = profileCapRes.data[0].data.objectId;
+
+                    const sessionKey = await SessionKey.create({
+                        address: currentAccount.address,
+                        packageId: packageID,
+                        ttlMin: 10,
+                        suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
+                    });
+
+                    const message = sessionKey.getPersonalMessage();
+                    signPersonalMessage(
+                        { message },
+                        {
+                            onSuccess: async (result) => {
+                                await sessionKey.setPersonalMessageSignature(result.signature);
+
+                                const tx = new Transaction();
+                                tx.moveCall({
+                                    target: `${packageID}::chat_contract::profile_seal_approve`,
+                                    arguments: [
+                                        tx.pure.vector('u8', fromHex(roomId)),
+                                        tx.object(profileCapId),
+                                        tx.object(roomId)
+                                    ],
+                                });
+
+                                const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
+
+                                try {
+                                    const decryptedBytes = await sealClient.decrypt({
+                                        data: new Uint8Array(encryptionKey),
+                                        sessionKey,
+                                        txBytes,
+                                    });
+
+                                    let binary = '';
+                                    const len = decryptedBytes.byteLength;
+                                    for (let i = 0; i < len; i++) {
+                                        binary += String.fromCharCode(decryptedBytes[i]);
+                                    }
+                                    const secretBase64 = window.btoa(binary);
+
+                                    storeSecret(roomId, secretBase64);
+                                    console.log("Secret decrypted and stored!");
+                                    window.location.reload();
+                                } catch (e) {
+                                    console.error("Decryption failed", e);
+                                }
+                            },
+                        }
+                    );
+                    return;
+                }
+
                 const isKeyEmpty = !encryptionKey || encryptionKey.length === 0;
                 if (isKeyEmpty) {
 
@@ -269,12 +358,12 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
         };
 
         checkAndCreateKey();
-    }, [currentAccount, roomId, suiClient, signAndExecuteTransaction]);
+    }, [currentAccount, roomId, suiClient, signAndExecuteTransaction, signPersonalMessage]);
 
     const handleTransferSuiAsset = async () => {
         const recipient = window.prompt("Enter recipient address for 100 MIST transfer:");
         if (!recipient) return;
-        
+
         try {
             const tx = new Transaction();
             const [coin] = tx.splitCoins(tx.gas, [100]);
@@ -340,9 +429,9 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
 
             const uploadRes = await uploadMessageBlob({
                 file_type: type, // This is metadata for Walrus, but we are encrypting the content anyway. 
-                                 // Ideally we might want to hide this too, but for now let's keep it consistent.
-                                 // Actually, uploadMessageBlob takes MessageBlob which has file_type.
-                                 // We are passing encrypted content as 'file'.
+                // Ideally we might want to hide this too, but for now let's keep it consistent.
+                // Actually, uploadMessageBlob takes MessageBlob which has file_type.
+                // We are passing encrypted content as 'file'.
                 file: encryptedContent,
                 timestamp: new Date().toISOString(),
             });
@@ -387,6 +476,56 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
         }
     };
 
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const reader = new FileReader();
+                reader.readAsDataURL(audioBlob);
+                reader.onloadend = async () => {
+                    if (typeof reader.result === 'string') {
+                        await sendMessage(reader.result, 'audio');
+                    }
+                };
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            setIsRecording(true);
+        } catch (err) {
+            console.error("Error accessing microphone:", err);
+            alert("Could not access microphone");
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+        }
+    };
+
+    const cancelRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.onstop = null; // Remove handler
+            mediaRecorderRef.current.stop();
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+            setIsRecording(false);
+        }
+    };
+
     const handleSend = async (e: FormEvent) => {
         e.preventDefault();
         const trimmed = input.trim();
@@ -413,69 +552,104 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
                     </div>
                 </CardHeader>
 
-                <CardContent className="flex-1 p-0">
-                    <ScrollArea className="h-full">
-                        <div ref={scrollRef} className="flex h-full flex-col gap-4 p-4">
+                {/* 🔑 中間訊息區：一定要 min-h-0，裡面自己做 scroll 容器 */}
+                <CardContent className="flex-1 p-0 min-h-0">
+                    <div
+                        ref={scrollRef}
+                        className="h-full overflow-y-auto"
+                    >
+                        <div className="flex flex-col gap-4 p-4">
                             {messages.map((msg) => (
                                 <ChatMessage key={msg.id} message={msg} />
                             ))}
                         </div>
-                    </ScrollArea>
+                    </div>
                 </CardContent>
 
                 <Separator className="bg-slate-800" />
 
                 {showAttachments && (
-                    <ChatAttachmentOptions 
-                        onClose={() => setShowAttachments(false)} 
+                    <ChatAttachmentOptions
+                        onClose={() => setShowAttachments(false)}
                         onAttach={handleAttachmentSelect}
                     />
                 )}
-                
-                {/* Hidden File Input */}
-                <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept={
-                        uploadType === 'image' ? 'image/*' : 
-                        uploadType === 'video' ? 'video/*' : 
-                        uploadType === 'audio' ? 'audio/*' : '*/*'
-                    }
-                    onChange={handleFileChange}
-                />
 
+                {/* 下方輸入列 */}
                 <CardFooter className="p-3">
-                    <form
-                        onSubmit={handleSend}
-                        className="flex w-full items-center gap-2"
-                    >
-                        <Button
-                            type="button"
-                            onClick={() => setShowAttachments(!showAttachments)}
-                            variant="ghost"
-                            size="icon"
-                            className={`
-                shrink-0 text-slate-400 hover:bg-slate-800 hover:text-slate-50 transition-all duration-200
-                ${showAttachments ? "rotate-45 text-emerald-400" : ""} 
-              `}
+                    {isRecording ? (
+                        <div className="flex w-full items-center gap-2 bg-slate-800/50 p-2 rounded-md">
+                            <div className="flex-1 flex items-center gap-2">
+                                <div className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+                                <span className="text-sm text-slate-200">Recording...</span>
+                            </div>
+                            <Button
+                                type="button"
+                                onClick={cancelRecording}
+                                variant="ghost"
+                                size="icon"
+                                className="text-slate-400 hover:text-red-400"
+                            >
+                                <Trash2 className="h-5 w-5" />
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={stopRecording}
+                                variant="ghost"
+                                size="icon"
+                                className="text-emerald-400 hover:text-emerald-300"
+                            >
+                                <div className="h-4 w-4 border-2 border-current rounded-full flex items-center justify-center">
+                                    <div className="h-2 w-2 bg-current rounded-sm" />
+                                </div>
+                                <span className="sr-only">Send Audio</span>
+                            </Button>
+                        </div>
+                    ) : (
+                        <form
+                            onSubmit={handleSend}
+                            className="flex w-full items-center gap-2"
                         >
-                            <Plus className="h-5 w-5" />
-                        </Button>
+                            <Button
+                                type="button"
+                                onClick={() => setShowAttachments(!showAttachments)}
+                                variant="ghost"
+                                size="icon"
+                                className={`
+              shrink-0 text-slate-400 hover:bg-slate-800 hover:text-slate-50 transition-all duration-200
+              ${showAttachments ? "rotate-45 text-emerald-400" : ""} 
+            `}
+                            >
+                                <Plus className="h-5 w-5" />
+                            </Button>
 
-                        <Input
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder="Type your message..."
-                            className="border-slate-700 bg-slate-900 text-slate-50 placeholder:text-slate-500 focus-visible:ring-slate-400"
-                        />
-                        <Button
-                            type="submit"
-                            className="shrink-0 bg-slate-50 text-slate-900 hover:bg-slate-200"
-                        >
-                            Send
-                        </Button>
-                    </form>
+                            <Input
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                placeholder="Type your message..."
+                                className="border-slate-700 bg-slate-900 text-slate-50 placeholder:text-slate-500 focus-visible:ring-slate-400"
+                            />
+
+                            {input.trim() ? (
+                                <Button
+                                    type="submit"
+                                    className="shrink-0 bg-slate-50 text-slate-900 hover:bg-slate-200"
+                                >
+                                    Send
+                                </Button>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    onClick={startRecording}
+                                    variant="ghost"
+                                    size="icon"
+                                    className="shrink-0 text-slate-400 hover:bg-slate-800 hover:text-slate-50"
+                                >
+                                    <Mic className="h-5 w-5" />
+                                </Button>
+                            )}
+                        </form>
+                    )}
                 </CardFooter>
             </Card>
         </div>

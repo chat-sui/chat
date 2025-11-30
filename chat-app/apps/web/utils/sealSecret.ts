@@ -107,3 +107,14 @@ export function getStoredSecret(id: string): string | null {
     return null;
   }
 }
+
+export function storeSecret(id: string, secretBase64: string) {
+  if (typeof window === 'undefined') return;
+  const storageKey = `${SECRET_STORAGE_PREFIX}${id}`;
+  const payloadToStore = {
+    id,
+    secretBase64,
+    createdAt: new Date().toISOString(),
+  };
+  window.localStorage.setItem(storageKey, JSON.stringify(payloadToStore));
+}
