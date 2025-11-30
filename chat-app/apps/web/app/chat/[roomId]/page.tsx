@@ -12,10 +12,14 @@ import { Input } from "@workspace/ui/components/input";
 import { Button } from "@workspace/ui/components/button";
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
 import { Separator } from "@workspace/ui/components/separator";
-import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSuiClient, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
 import { getProfileCap } from "@/utils/queryer";
 // 引入圖標，用於 ChatAttachmentOptions 和觸發按鈕
 import { Paperclip, Image, Gift, Wallet, Smile, X, Plus } from "lucide-react";
+import { createSealEncryptedSecretAndStore } from "@/utils/sealSecret";
+import { sealClient } from "@/utils/sealClient";
+import { packageID } from "@/utils/package";
+import { update_encryption_key } from "@/utils/tx/update_encryption_key";
 
 // --- 介面定義 (與您原有的相同) ---
 type Author = "me" | "other";
@@ -91,13 +95,12 @@ function ChatAttachmentOptions({ onClose }: { onClose: () => void }) {
 }
 
 // --- ChatPage 組件 (修改部分) ---
-export default function ChatPage() {
-
+export default function ChatPage({ params }: { params: { roomId: string } }) {
+  const { roomId } = params;
   // ... (原有的 Hooks 和靜態資料) ...
   const currentAccount = useCurrentAccount();
   const suiClient = useSuiClient();
-
-  getProfileCap({ suiClient: suiClient, address: currentAccount?.address || "" })
+  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
 
   const [messages, setMessages] = useState<Message[]>([
     { id: 1, author: "other", name: "Bot", content: "Hey! This is your brand new chat room UI 👋", createdAt: "10:00" },
@@ -116,6 +119,70 @@ export default function ChatPage() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Check and create encryption key
+  useEffect(() => {
+    const checkAndCreateKey = async () => {
+        if (!currentAccount || !roomId) return;
+
+        try {
+            // 1. Fetch Chatroom object
+            const chatroomObj = await suiClient.getObject({
+                id: roomId,
+                options: { showContent: true }
+            });
+
+            if (chatroomObj.data?.content?.dataType !== "moveObject") return;
+            const fields = chatroomObj.data.content.fields as any;
+            
+            // 2. Check encryption_key
+            const encryptionKey = fields.encryption_key;
+            // If encryption_key is empty (vector<u8> is empty)
+            const isKeyEmpty = !encryptionKey || encryptionKey.length === 0;
+
+            if (isKeyEmpty) {
+                console.log("Encryption key missing. Creating new one...");
+                
+                // 3. Create new key
+                const { encryptedBytes } = await createSealEncryptedSecretAndStore({
+                    sealClient,
+                    id: roomId,
+                    packageId: packageID,
+                });
+
+                // 4. Get ProfileCap
+                const profileCapRes = await getProfileCap({
+                    suiClient,
+                    address: currentAccount.address
+                });
+                
+                if (!profileCapRes || !profileCapRes.data || profileCapRes.data.length === 0) {
+                    console.error("ProfileCap not found");
+                    return;
+                }
+                const profileCapId = profileCapRes.data[0].data.objectId;
+
+                // 5. Update on-chain
+                const tx = update_encryption_key(roomId, profileCapId, encryptedBytes);
+                
+                signAndExecuteTransaction({
+                    transaction: tx,
+                }, {
+                    onSuccess: () => {
+                        console.log("Encryption key updated successfully");
+                    },
+                    onError: (err) => {
+                        console.error("Failed to update encryption key", err);
+                    }
+                });
+            }
+        } catch (e) {
+            console.error("Error checking/creating key:", e);
+        }
+    };
+
+    checkAndCreateKey();
+  }, [currentAccount, roomId, suiClient, signAndExecuteTransaction]);
 
   const handleSend = (e: FormEvent) => {
     e.preventDefault();

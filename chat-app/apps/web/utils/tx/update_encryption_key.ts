@@ -8,7 +8,7 @@ export const update_encryption_key = (chatroom: string, profileCap: string, newK
         arguments: [
             tx.object(chatroom),
             tx.object(profileCap),
-            tx.pure(newKey),
+            tx.pure.vector('u8', newKey),
         ],
     });
     return tx;

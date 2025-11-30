@@ -47,6 +47,7 @@ export async function createSealEncryptedSecretAndStore(params: {
   storageKey: string;
   secretBase64: string;
   encryptedBase64: string;
+  encryptedBytes: Uint8Array;
   backupKey: string;
 }> {
   const { sealClient, id, packageId, threshold = 2, byteLength = 32 } = params;
@@ -88,6 +89,7 @@ export async function createSealEncryptedSecretAndStore(params: {
     storageKey,
     secretBase64,
     encryptedBase64,
+    encryptedBytes,
     backupKey,
   };
 }
