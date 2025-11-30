@@ -15,6 +15,9 @@ import { createProfile } from "@/utils/tx/create_profile";
 import { useRouter } from "next/navigation"
 import { getProfileCap } from "@/utils/queryer";
 import { SecretGeneratorButton } from "@/components/secret-generator-button";
+import { WalrusMessageViewer } from "@/components/walrus/walrus-message-viewer";
+
+
 export default function Page() {
   const router = useRouter()
   const suiClient = useSuiClient();
@@ -51,7 +54,6 @@ export default function Page() {
       try {
         const cap = await getProfileCap({ suiClient, address: currentAccount.address });
         setHasProfile(!!cap.data[0].data.objectId); 
-        console.log("Profile exists:", !!cap.data[0].data.objectId);
       } catch (e) {
         console.error(e);
       } finally {
@@ -72,7 +74,6 @@ export default function Page() {
         },
         {
           onSuccess: (result) => {
-            console.log("Transaction executed successfully:", result);
             router.push(`/chatlist`)
           },
           onError: (error) => {
@@ -111,6 +112,7 @@ export default function Page() {
         <h1 className="text-2xl font-bold">Hello World</h1>
         <Button size="sm">Button</Button>
         <ConnectButton />
+        <WalrusMessageViewer blobId="your-blob-id-here" />
         <TripleInputAction
           onClick={handleCreateProfile}
           buttonText="Create Profile"

@@ -68,7 +68,6 @@ export async function getCoin(params: { suiClient: SuiClient, address: string, t
 
 export async function getProfileCap(params: { suiClient: SuiClient, address: string, type?: string }): Promise<any> {
     try {
-        console.log('getProfileCap called with address:', params.address);
         const result = await params.suiClient.getOwnedObjects({
             owner: params.address,
             filter: {
@@ -80,7 +79,6 @@ export async function getProfileCap(params: { suiClient: SuiClient, address: str
             }
         },
         );
-        console.log('getProfileCap result:', result);
         return result;
     } catch (error) {
         console.error('Error in getCoin:', error);
@@ -98,7 +96,6 @@ export async function getProfileInfo(params: { suiClient: SuiClient, address: st
 
         // 安全檢查：確保真的有拿到 Cap
         if (!profileCap || !profileCap.data || profileCap.data.length === 0) {
-            console.log("No ProfileCap found for this address.");
             return undefined;
         }
 

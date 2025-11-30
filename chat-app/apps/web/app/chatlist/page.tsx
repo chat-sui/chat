@@ -73,7 +73,6 @@ export default function FriendListPage() {
             try {
                 const info = await getProfileInfo({ suiClient, address: currentAccount.address });
                 setProfileId(info?.profileId || "");
-                console.log("Profile Info:", info);
             } catch (e) {
                 console.error(e);
             } finally {
@@ -114,8 +113,6 @@ export default function FriendListPage() {
 
     const handleCreateChat = () => {
         try {
-            console.log("ProfileCap:", ProfileCap);
-            console.log("ProfileId:", ProfileId);
             
             const tx = add_friend(ProfileCap, ProfileId, newFriendInput);
             signAndExecuteTransaction(
@@ -137,7 +134,6 @@ export default function FriendListPage() {
             alert("Mint failed");
         }
         // TODO: replace with real create-chat logic
-        console.log("Create chat with:", newFriendInput);
         setNewFriendInput("");
         setIsPanelOpen(false);
     };
