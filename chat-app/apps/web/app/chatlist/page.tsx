@@ -19,7 +19,7 @@ export default function FriendListPage() {
     const router = useRouter();
     const suiClient = useSuiClient();
     const currentAccount = useCurrentAccount();
-    
+    const [isChecking, setIsChecking] = useState(true);
     // State
     const [friends, setFriends] = useState<FriendChat[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -76,7 +76,7 @@ export default function FriendListPage() {
 
     // 3. 初始讀取 (Profile Cap & Friends)
     useEffect(() => {
-        const init = async () => {
+        const checkProfile = async () => {
             if (!currentAccount?.address) {
                 setIsLoading(false);
                 return;
