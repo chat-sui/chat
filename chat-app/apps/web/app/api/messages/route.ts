@@ -1,33 +1,5 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-// Define the path to the JSON file
-const dataFilePath = path.join(process.cwd(), 'data', 'messages.json');
-
-// Ensure the data directory exists
-const dataDir = path.join(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir);
-}
-
-// Helper to read messages
-function readMessages() {
-  if (!fs.existsSync(dataFilePath)) {
-    return {};
-  }
-  const fileContent = fs.readFileSync(dataFilePath, 'utf-8');
-  try {
-    return JSON.parse(fileContent);
-  } catch (error) {
-    return {};
-  }
-}
-
-// Helper to write messages
-function writeMessages(data: any) {
-  fs.writeFileSync(dataFilePath, JSON.stringify(data, null, 2), 'utf-8');
-}
+import { supabaseServer } from '@/lib/supabase-server';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -37,10 +9,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'roomId is required' }, { status: 400 });
   }
 
-  const allMessages = readMessages();
-  const roomMessages = allMessages[roomId] || [];
+  const { data, error } = await supabaseServer
+    .from('messages')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('timestamp', { ascending: true });
 
-  return NextResponse.json({ messages: roomMessages });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ messages: data });
 }
 
 export async function POST(request: Request) {
@@ -52,21 +31,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const allMessages = readMessages();
-    if (!allMessages[roomId]) {
-      allMessages[roomId] = [];
-    }
-
     const newMessage = {
-      blobId,
+      room_id: roomId,
+      blob_id: blobId,
       sender,
       timestamp: timestamp || new Date().toISOString(),
     };
 
-    allMessages[roomId].push(newMessage);
-    writeMessages(allMessages);
+    const { data, error } = await supabaseServer
+      .from('messages')
+      .insert([newMessage])
+      .select()
+      .single();
 
-    return NextResponse.json({ success: true, message: newMessage });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: data });
   } catch (error) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
