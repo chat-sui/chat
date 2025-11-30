@@ -29,6 +29,7 @@ export interface FriendChat {
     friendName: string;     // 對方的 username
     friendAvatar: string;   // 對方的 avatar_url
     friendBio: string;      // 對方的 bio
+    lastMessage?: string;   // 最後一條訊息 (可選)
 }
 
 interface FriendshipField {

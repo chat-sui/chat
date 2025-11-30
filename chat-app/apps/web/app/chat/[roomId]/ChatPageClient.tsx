@@ -35,6 +35,7 @@ import { encryptData, decryptData } from "@/utils/encryption";
 import { WalrusMessageUploader } from "@/components/walrus/uploader";
 import { Transaction } from "@mysten/sui/transactions";
 import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
+import { ZkSendLinkBuilder } from "@mysten/zksend";
 
 type Author = "me" | "other";
 
@@ -309,7 +310,7 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
                                     let binary = '';
                                     const len = decryptedBytes.byteLength;
                                     for (let i = 0; i < len; i++) {
-                                        binary += String.fromCharCode(decryptedBytes[i]);
+                                        binary += String.fromCharCode(decryptedBytes[i]!);
                                     }
                                     const secretBase64 = window.btoa(binary);
 
@@ -369,26 +370,44 @@ export default function ChatPageClient({ roomId }: { roomId: string }) {
         checkAndCreateKey();
     }, [currentAccount, roomId, suiClient, signAndExecuteTransaction, signPersonalMessage]);
 
-    const handleTransferSuiAsset = async () => {
-        const recipient = window.prompt("Enter recipient address for 100 MIST transfer:");
-        if (!recipient) return;
+    const handleZkSend = async () => {
+        if (!currentAccount) return;
 
         try {
-            const tx = new Transaction();
-            const [coin] = tx.splitCoins(tx.gas, [100]);
-            tx.transferObjects([coin], recipient);
-            signAndExecuteTransaction({ transaction: tx }, {
-                onSuccess: () => alert("Transfer successful!"),
-                onError: (e) => alert("Transfer failed: " + e)
+            const zelda = new ZkSendLinkBuilder({
+                sender: currentAccount.address,
+                network: 'testnet',
             });
+
+            // Sending 100 MIST
+            zelda.addClaimableMist(100n);
+
+            const url = zelda.getLink();
+            const tx = await zelda.createSendTransaction();
+
+            signAndExecuteTransaction(
+                { transaction: tx },
+                {
+                    onSuccess: async () => {
+                        console.log("ZkSend transaction successful, sending link...");
+                        await sendMessage(url, 'text');
+                        alert("ZkSend Link created and sent!");
+                    },
+                    onError: (e) => {
+                        console.error("ZkSend failed", e);
+                        alert("ZkSend failed: " + e);
+                    }
+                }
+            );
         } catch (e) {
-            console.error(e);
+            console.error("Error creating ZkSend link", e);
+            alert("Error creating ZkSend link");
         }
     };
 
     const handleAttachmentSelect = (type: string) => {
         if (type === 'asset') {
-            handleTransferSuiAsset();
+            handleZkSend();
         } else if (['image', 'video', 'audio'].includes(type)) {
             setUploadType(type as MessageType);
             if (fileInputRef.current) {
