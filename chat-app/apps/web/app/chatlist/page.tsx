@@ -118,6 +118,7 @@ export default function FriendListPage() {
     const handleCreateChat = () => {
         try {
             const tx = add_friend(ProfileCap, ProfileId, newFriendInput);
+            console.log("Created transaction:", tx);
             signAndExecuteTransaction(
                 {
                     transaction: tx,
