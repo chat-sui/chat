@@ -36,12 +36,7 @@ export function createAndStoreSecret(byteLength: number = 32): string {
   return secret;
 }
 
-const { encryptedObject: encryptedBytes, key: backupKey } = await sealClient.encrypt({
-    threshold: 2,
-    packageId: packageID,
-    id: id,
-    data,
-});
+
 
 export function SecretGeneratorButton() {
   const [loading, setLoading] = useState(false);

@@ -1,0 +1,5 @@
+{
+	"dependencies": {
+		"@mysten/zksend": "^0.14.10"
+	}
+}

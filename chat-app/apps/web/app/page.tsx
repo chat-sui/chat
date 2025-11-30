@@ -14,7 +14,9 @@ import TripleInputAction from "@/components/create_chat/create_chat_room_comp"
 import { createProfile } from "@/utils/tx/create_profile";
 import { useRouter } from "next/navigation"
 import { getProfileCap } from "@/utils/queryer";
-import { SecretGeneratorButton } from "@/components/secret-generator-button";
+
+
+
 export default function Page() {
   const router = useRouter()
   const suiClient = useSuiClient();
@@ -50,7 +52,7 @@ export default function Page() {
       }
       try {
         const cap = await getProfileCap({ suiClient, address: currentAccount.address });
-        setHasProfile(!!cap); 
+        setHasProfile(!!cap.data[0].data.objectId); 
       } catch (e) {
         console.error(e);
       } finally {
@@ -71,7 +73,6 @@ export default function Page() {
         },
         {
           onSuccess: (result) => {
-            console.log("Transaction executed successfully:", result);
             router.push(`/chatlist`)
           },
           onError: (error) => {
@@ -107,13 +108,12 @@ export default function Page() {
   return (
     <div className="flex items-center justify-center min-h-svh">
       <div className="flex flex-col items-center justify-center gap-4">
-        <h1 className="text-2xl font-bold">Hello World</h1>
-        <Button size="sm">Button</Button>
+        <h1 className="text-2xl font-bold">Drift</h1>
         <ConnectButton />
         <TripleInputAction
           onClick={handleCreateProfile}
           buttonText="Create Profile"
-          placeholders={["Room Name", "Description", "Topic"]}
+          placeholders={["User Name", "Bio", "Avatar URL"]}
         />
       </div>
     </div>

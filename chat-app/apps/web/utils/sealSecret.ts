@@ -47,6 +47,7 @@ export async function createSealEncryptedSecretAndStore(params: {
   storageKey: string;
   secretBase64: string;
   encryptedBase64: string;
+  encryptedBytes: Uint8Array;
   backupKey: string;
 }> {
   const { sealClient, id, packageId, threshold = 2, byteLength = 32 } = params;
@@ -77,6 +78,7 @@ export async function createSealEncryptedSecretAndStore(params: {
     id,
     encrypted: encryptedBase64,
     backupKey,
+    secretBase64, // 儲存明文 secret
     // 如果未來要 rotate / 追蹤，可加上 meta
     createdAt: new Date().toISOString(),
   };
@@ -88,6 +90,31 @@ export async function createSealEncryptedSecretAndStore(params: {
     storageKey,
     secretBase64,
     encryptedBase64,
+    encryptedBytes,
     backupKey,
   };
+}
+
+export function getStoredSecret(id: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const storageKey = `${SECRET_STORAGE_PREFIX}${id}`;
+  const stored = window.localStorage.getItem(storageKey);
+  if (!stored) return null;
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed.secretBase64 || null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeSecret(id: string, secretBase64: string) {
+  if (typeof window === 'undefined') return;
+  const storageKey = `${SECRET_STORAGE_PREFIX}${id}`;
+  const payloadToStore = {
+    id,
+    secretBase64,
+    createdAt: new Date().toISOString(),
+  };
+  window.localStorage.setItem(storageKey, JSON.stringify(payloadToStore));
 }

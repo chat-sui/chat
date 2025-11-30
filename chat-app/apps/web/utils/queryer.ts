@@ -4,13 +4,39 @@
 import { CoinBalance, CoinStruct, DynamicFieldInfo, PaginatedCoins, SuiObjectResponse, SuiClient } from "@mysten/sui/client";
 import { packageID } from "./package";
 import { Filter } from "lucide-react";
+import { get } from "http";
+
+
+export interface Friendship {
+    type: string;
+    fields: {
+        friend_profile_id: string;
+        chat_id: string;
+    };
+}
 
 export interface ProfileInfo {
-  profileId: string;
-  name?: string; 
-  avatarUrl?: string;
-  bio?: string;
-  friendsList?: string[];
+    profileId: string;
+    name?: string;
+    avatarUrl?: string;
+    bio?: string;
+    friendsList: Friendship[];
+}
+
+export interface FriendChat {
+    id: string;             // Chatroom 的 ID (用來跳轉)
+    friendProfileId: string;// 對方的 Profile ID
+    friendName: string;     // 對方的 username
+    friendAvatar: string;   // 對方的 avatar_url
+    friendBio: string;      // 對方的 bio
+    lastMessage?: string;   // 最後一條訊息 (可選)
+}
+
+interface FriendshipField {
+    fields: {
+        friend_profile_id: string;
+        chat_id: string;
+    };
 }
 
 /**
@@ -43,7 +69,6 @@ export async function getCoin(params: { suiClient: SuiClient, address: string, t
 
 export async function getProfileCap(params: { suiClient: SuiClient, address: string, type?: string }): Promise<any> {
     try {
-        console.log('getProfileCap called with address:', params.address);
         const result = await params.suiClient.getOwnedObjects({
             owner: params.address,
             filter: {
@@ -55,7 +80,6 @@ export async function getProfileCap(params: { suiClient: SuiClient, address: str
             }
         },
         );
-        console.log('getProfileCap result:', result);
         return result;
     } catch (error) {
         console.error('Error in getCoin:', error);
@@ -65,28 +89,129 @@ export async function getProfileCap(params: { suiClient: SuiClient, address: str
 
 export async function getProfileInfo(params: { suiClient: SuiClient, address: string }): Promise<ProfileInfo | undefined> {
     try {
+        // 取得 ProfileCap
         const profileCap = await getProfileCap({
             suiClient: params.suiClient,
             address: params.address,
         });
-        console.log('getProfileInfo profileCap:', profileCap.data[0].data?.content.fields.profile_id);
-        const profileId = profileCap.data[0].data?.content.fields.profile_id;
-        
+
+        // 安全檢查：確保真的有拿到 Cap
+        if (!profileCap || !profileCap.data || profileCap.data.length === 0) {
+            return undefined;
+        }
+
+        const capObject = profileCap.data[0];
+        // 安全轉型
+        const capFields = capObject.data?.content?.dataType === "moveObject" 
+            ? (capObject.data.content.fields as any) 
+            : null;
+
+        if (!capFields) return undefined;
+
+        const profileId = capFields.profile_id;
+        console.log('Found Profile ID:', profileId);
+
+        // 取得 Profile 物件
         const profileObject = await params.suiClient.getObject({
             id: profileId,
-            options: { showType: true, showContent: true }
+            options: { showContent: true }
         });
-        console.log('getProfileInfo profileObject:', profileObject);
+
+        if (profileObject.data?.content?.dataType !== "moveObject") {
+            return undefined;
+        }
+
+        const fields = profileObject.data.content.fields as any;
+
         return {
             profileId: profileId,
-            name: profileObject.data?.content.fields.name,
-            avatarUrl: profileObject.data?.content.fields.avatar_url,
-            bio: profileObject.data?.content.fields.bio,
-            friendsList: profileObject.data?.content.fields.friends,
-        }           
+            // ⚠️ 修正：Move Struct 是 username，不是 name
+            name: fields.username || "Unknown", 
+            // Move Struct 是 avatar_url
+            avatarUrl: fields.avatar_url || "", 
+            bio: fields.bio || "",
+            // ⭐️ 直接把原始的 friends 結構傳出去
+            friendsList: fields.friends || [], 
+        };
     }
     catch (error) {
         console.error('Error in getProfileInfo:', error);
+        throw error;
+    }
+}
+
+export async function getFriendList(
+    suiClient: SuiClient,
+    myProfileId: string // 注意：這裡傳入的是 Profile 的 Object ID
+): Promise<FriendChat[]> {
+    try {
+        // 1. 先讀取「我自己」的 Profile 物件
+        const myProfileObject = await suiClient.getObject({
+            id: myProfileId,
+            options: { showContent: true }
+        });
+
+        // 檢查是否讀取成功
+        if (!myProfileObject.data?.content || myProfileObject.data.content.dataType !== "moveObject") {
+            return [];
+        }
+
+        const myFields = myProfileObject.data.content.fields as any;
+
+        // 2. 取得 friends 陣列 (這是 vector<Friendship>)
+        // 在 RPC 回傳的 JSON 中，它通常是一個物件陣列
+        const friendships = (myFields.friends || []) as FriendshipField[];
+
+        if (friendships.length === 0) {
+            return [];
+        }
+
+        // 3. 整理出「所有朋友的 ID」準備批量查詢
+        // 同時建立一個 Map: FriendProfileID -> ChatID (為了稍後組裝用)
+        const friendProfileIds: string[] = [];
+        const chatMap = new Map<string, string>();
+
+        friendships.forEach((item) => {
+            // 注意：Sui 的 JSON 結構，Struct 欄位通常在 item.fields 裡面
+            const f = item.fields;
+            friendProfileIds.push(f.friend_profile_id);
+            chatMap.set(f.friend_profile_id, f.chat_id);
+        });
+
+        // 4. 【優化】批量讀取所有朋友的 Profile (multiGetObjects)
+        // 不要用 for loop 一個一個 await，那樣會很慢
+        const friendObjects = await suiClient.multiGetObjects({
+            ids: friendProfileIds,
+            options: { showContent: true }
+        });
+
+        // 5. 組裝最終資料
+        const friendChats: FriendChat[] = [];
+
+        friendObjects.forEach((obj) => {
+            if (obj.data?.content?.dataType === "moveObject") {
+                const fields = obj.data.content.fields as any;
+                const profileId = obj.data.objectId;
+
+                // 從剛才的 Map 找回對應的 chat_id
+                const chatId = chatMap.get(profileId);
+
+                if (chatId) {
+                    friendChats.push({
+                        id: chatId, // ✅ 直接使用合約存的 ID，不用自己算
+                        friendProfileId: profileId,
+                        friendName: fields.username || "Unknown", // 注意合約欄位是 username
+                        friendAvatar: fields.avatar_url || "",    // 注意合約欄位是 avatar_url
+                        friendBio: fields.bio || "",
+                    });
+                }
+            }
+        });
+
+        return friendChats;
+
+    } catch (error) {
+        console.error('Error in getFriendList:', error);
         throw error;
     }
 }

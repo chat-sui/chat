@@ -6,13 +6,19 @@ use sui::dynamic_field as df;
 
 const EInvalidProfileCap: u64 = 0;
 const MARKER: u64 = 1;
+const EAlreadyFriends: u64 = 2;
 
 public struct Profile has key, store {
     id: UID,
     username: String,
     bio: String,
     avatar_url: String,
-    friends: vector<ID>,
+    friends: vector<Friendship>,
+}
+
+public struct Friendship has store, drop, copy {
+    friend_profile_id: ID,
+    chat_id: ID
 }
 
 public struct ProfileCap has key {
@@ -37,7 +43,7 @@ public fun create_profile(
         username: username,
         bio: bio,
         avatar_url: avatar_url,
-        friends: vector::empty<ID>(),
+        friends: vector::empty<Friendship>(),
     };
 
     let profile_cap = ProfileCap {
@@ -54,19 +60,64 @@ public fun add_friend(
     friend_profile: &Profile,
     ctx: &mut TxContext,
 ) {
-    vector::push_back(&mut profile.friends, object::id(friend_profile));
+    let my_id = object::uid_to_inner(&profile.id);
+    let friend_id = object::uid_to_inner(&friend_profile.id);
+
+    assert!(check_is_friend(profile, friend_id), EAlreadyFriends);
+
+    let (found_chat , existing_chat_id) = find_chat_id_in_profile(friend_profile, my_id);
+
+    let final_chat_id: ID;
+    
+    if(found_chat){
+            final_chat_id = existing_chat_id;
+    } else {
+        let chatroom = Chatroom {
+            id: object::new(ctx),
+            profile: vector[my_id, friend_id],
+            encryption_key: vector::empty<u8>(),
+        };
+        final_chat_id = object::id(&chatroom);
+        transfer::share_object(chatroom);
+    };
+
+    let new_friendship = Friendship {
+        friend_profile_id: friend_id,
+        chat_id: final_chat_id,
+    };
+    vector::push_back(&mut profile.friends, new_friendship);
 }
 
-public fun create_chat_room(
+fun check_is_friend(
     profile: &Profile,
-    ctx: &mut TxContext,
-) {
-    let chatroom = Chatroom {
-        id: object::new(ctx),
-        profile: vector::empty<ID>(),
-        encryption_key: vector::empty<u8>(),
+    friend_profile_id: ID,
+): bool {
+    let len = vector::length(&profile.friends);
+    let mut i = 0;
+    while (i < len) {
+        let friendship = vector::borrow(&profile.friends, i);
+        if (friendship.friend_profile_id == friend_profile_id) {
+            return false
+        };
+        i = i + 1;
     };
-    transfer::share_object(chatroom);
+    true
+}
+
+fun find_chat_id_in_profile(
+    profile: &Profile,
+    target_profile_id: ID,
+): (bool, ID) {
+    let len = vector::length(&profile.friends);
+    let mut i = 0;
+    while (i < len) {
+        let friendship = vector::borrow(&profile.friends, i);
+        if (friendship.friend_profile_id == target_profile_id) {
+            return (true, friendship.chat_id)
+        };
+        i = i + 1;
+    };
+    (false, object::uid_to_inner(&profile.id)) // return dummy ID
 }
 
 public fun update_encryption_key(
@@ -92,11 +143,13 @@ public fun add_chatroom_profile(
     vector::push_back(&mut chatroom.profile, object::id(profile));
 }
 
-entry fun profile_seal_approve(
+entry fun seal_approve_profile(
+    id: vector<u8>,
     profile_cap: &ProfileCap,
     chatroom: &Chatroom,
     ctx: &mut TxContext,
 ) {
+    assert!(id == object::id_bytes(chatroom), EInvalidProfileCap);
     internal_approve_seal(profile_cap, chatroom, ctx);
 }
 
